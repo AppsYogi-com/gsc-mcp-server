@@ -2,8 +2,8 @@
 
 > Google Search Console MCP Server — Connect Google Search Console to Claude, Cursor, and other MCP clients.
 
-[![npm version](https://img.shields.io/npm/v/gsc-mcp-server.svg)](https://www.npmjs.com/package/gsc-mcp-server)
-[![npm downloads](https://img.shields.io/npm/dm/gsc-mcp-server.svg)](https://www.npmjs.com/package/gsc-mcp-server)
+[![npm version](https://img.shields.io/npm/v/@appsyogi/gsc-mcp-server.svg)](https://www.npmjs.com/package/@appsyogi/gsc-mcp-server)
+[![npm downloads](https://img.shields.io/npm/dm/@appsyogi/gsc-mcp-server.svg)](https://www.npmjs.com/package/@appsyogi/gsc-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/AppsYogi-com/gsc-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/AppsYogi-com/gsc-mcp-server/actions/workflows/ci.yml)
 
@@ -21,7 +21,7 @@
 
 ```bash
 # Install globally
-npm install -g gsc-mcp-server
+npm install -g @appsyogi/gsc-mcp-server
 
 # Set up OAuth credentials
 gsc-mcp init
@@ -147,7 +147,7 @@ Add to your Cursor MCP config:
   "mcpServers": {
     "gsc": {
       "command": "npx",
-      "args": ["-y", "gsc-mcp", "run"]
+      "args": ["-y", "@appsyogi/gsc-mcp-server", "run"]
     }
   }
 }
