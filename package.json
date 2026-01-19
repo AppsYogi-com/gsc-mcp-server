@@ -1,0 +1,69 @@
+{
+    "name": "gsc-mcp-server",
+    "version": "0.1.0",
+    "description": "Google Search Console MCP Server - CLI-installable MCP server for GSC integration",
+    "type": "module",
+    "main": "./dist/index.js",
+    "bin": {
+        "gsc-mcp": "./dist/cli/index.js"
+    },
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsup",
+        "dev": "tsup --watch",
+        "start": "node dist/cli/index.js",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint src/",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "mcp",
+        "google-search-console",
+        "gsc",
+        "seo",
+        "model-context-protocol",
+        "claude",
+        "cursor",
+        "ai",
+        "search-analytics"
+    ],
+    "author": "SuperZero11",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/AppsYogi-com/gsc-mcp-server.git"
+    },
+    "bugs": {
+        "url": "https://github.com/AppsYogi-com/gsc-mcp-server/issues"
+    },
+    "homepage": "https://github.com/AppsYogi-com/gsc-mcp-server#readme",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.25.0",
+        "better-sqlite3": "^11.0.0",
+        "chalk": "^5.3.0",
+        "commander": "^12.0.0",
+        "env-paths": "^3.0.0",
+        "googleapis": "^140.0.0",
+        "keytar": "^7.9.0",
+        "open": "^10.0.0",
+        "ora": "^8.0.0",
+        "zod": "^3.25.0"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.0",
+        "@types/node": "^22.0.0",
+        "tsup": "^8.0.0",
+        "typescript": "^5.6.0"
+    }
+}
