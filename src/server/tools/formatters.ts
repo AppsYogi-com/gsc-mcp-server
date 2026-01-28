@@ -41,7 +41,7 @@ export function stripUrlPrefix(url: string, siteUrl?: string): string {
 
     // Normalize siteUrl - handle both domain property and URL prefix formats
     let prefix = siteUrl;
-    
+
     // Handle sc-domain: format (e.g., "sc-domain:example.com")
     if (prefix.startsWith('sc-domain:')) {
         const domain = prefix.replace('sc-domain:', '');
@@ -63,7 +63,7 @@ export function stripUrlPrefix(url: string, siteUrl?: string): string {
     // Handle URL prefix format (e.g., "https://example.com/")
     // Remove trailing slash for matching
     prefix = prefix.replace(/\/$/, '');
-    
+
     if (url.startsWith(prefix)) {
         return url.slice(prefix.length) || '/';
     }
@@ -96,7 +96,7 @@ export function formatRow(
     if (compact) {
         // Compact format with short keys (issue #5)
         const result: Record<string, unknown> = {};
-        
+
         if (keys && keys.length > 0) {
             // Use short key names based on what the key represents
             // For single-dimension queries, just use the value directly

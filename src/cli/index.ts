@@ -11,7 +11,7 @@ const program = new Command();
 program
     .name('gsc-mcp')
     .description('Google Search Console MCP Server - Connect GSC to Claude, Cursor, and other MCP clients')
-    .version('0.1.0');
+    .version('0.2.0');
 
 program
     .command('init')

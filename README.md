@@ -193,6 +193,73 @@ Add to your Cursor MCP config:
 | `export.csv` | Export data as CSV |
 | `export.json` | Export data as JSON |
 
+## LLM Optimization (v0.2.0+)
+
+All tools support parameters to reduce token consumption for LLM use cases:
+
+### Compact Response Format
+
+Add `format: "compact"` to any tool for LLM-optimized output:
+
+```json
+{
+  "siteUrl": "sc-domain:example.com",
+  "startDate": "2026-01-01",
+  "endDate": "2026-01-28",
+  "dimensions": ["query"],
+  "format": "compact"
+}
+```
+
+**Compact format features:**
+- Short key names (`imp` instead of `impressions`, `pos` instead of `position`)
+- CTR as percentage string (`"5.41%"` instead of `0.054123...`)
+- Natural language summary field
+- URL prefixes stripped from page paths
+
+**Example compact response:**
+```json
+{
+  "summary": "Top query 'example keyword' got 150 clicks at position 3.2",
+  "rows": [
+    {"key": "example keyword", "clicks": 150, "imp": 2800, "ctr": "5.36%", "pos": 3.2}
+  ]
+}
+```
+
+### Date Rollup Granularity
+
+For date dimension queries, use `granularity` to reduce row count:
+
+```json
+{
+  "siteUrl": "sc-domain:example.com",
+  "startDate": "2025-07-01",
+  "endDate": "2026-01-28",
+  "dimensions": ["date"],
+  "granularity": "weekly"
+}
+```
+
+**Options:**
+- `daily` — Default, returns daily data
+- `weekly` — Aggregates by week (Monday-based)
+- `monthly` — Aggregates by month
+- `auto` — Picks based on date range (>90 days = monthly, >21 days = weekly)
+
+### Default Row Limits
+
+Default `rowLimit` is **25** (optimized for LLM context windows). Use higher values when needed:
+
+```json
+{
+  "siteUrl": "sc-domain:example.com",
+  "rowLimit": 100
+}
+```
+
+Maximum: 25,000 rows.
+
 ## Resources
 
 The server exposes browsable resources:

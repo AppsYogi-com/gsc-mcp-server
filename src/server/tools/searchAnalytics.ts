@@ -173,10 +173,10 @@ export async function handleSearchAnalyticsTool(
         const granularity = (args.granularity as 'daily' | 'weekly' | 'monthly' | 'auto') || 'daily';
         const siteUrl = args.siteUrl as string;
         const dimensions = args.dimensions as string[] | undefined;
-        
+
         // Apply default rowLimit (issue #4)
         const rowLimit = (args.rowLimit as number) || DEFAULT_ROW_LIMIT;
-        
+
         const query = SearchAnalyticsQuerySchema.parse({ ...args, rowLimit });
         let response = await client.searchAnalytics(query);
 
@@ -402,7 +402,7 @@ function rollupByGranularity(
         const avgPosition = bucket.positions.length > 0
             ? bucket.positions.reduce((a, b) => a + b, 0) / bucket.positions.length
             : 0;
-        
+
         rolledUpRows.push({
             keys: [bucketKey],
             clicks: bucket.clicks,
