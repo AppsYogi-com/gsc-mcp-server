@@ -1,6 +1,6 @@
 {
     "name": "@appsyogi/gsc-mcp-server",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Google Search Console MCP Server - CLI-installable MCP server for GSC integration",
     "type": "module",
     "main": "./dist/index.js",
