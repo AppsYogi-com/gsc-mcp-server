@@ -1,5 +1,13 @@
 import { GSCClient } from '../../gsc/client.js';
-import type { ToolResult, LowCtrOpportunity, CannibalizationIssue, WeeklySummary } from '../../types.js';
+import type { ToolResult } from '../../types.js';
+import {
+    formatCtr,
+    formatPosition,
+    stripUrlPrefix,
+    formatRows,
+    DEFAULT_ROW_LIMIT,
+    type FormatOptions,
+} from './formatters.js';
 
 export const opportunityTools = [
     {
@@ -45,8 +53,14 @@ A typical target CTR for positions 4-20 is 3-5%, so queries below 3% are flagged
                 },
                 limit: {
                     type: 'number',
-                    description: 'Maximum opportunities to return (default: 50)',
-                    default: 50,
+                    description: `Maximum opportunities to return (default: ${DEFAULT_ROW_LIMIT})`,
+                    default: DEFAULT_ROW_LIMIT,
+                },
+                format: {
+                    type: 'string',
+                    enum: ['full', 'compact'],
+                    description: 'Response format: "full" (default) or "compact" (LLM-optimized)',
+                    default: 'full',
                 },
             },
             required: ['siteUrl'],
@@ -80,8 +94,14 @@ Returns queries where 2+ pages rank, sorted by total impressions.`,
                 },
                 limit: {
                     type: 'number',
-                    description: 'Maximum issues to return (default: 30)',
-                    default: 30,
+                    description: `Maximum issues to return (default: ${DEFAULT_ROW_LIMIT})`,
+                    default: DEFAULT_ROW_LIMIT,
+                },
+                format: {
+                    type: 'string',
+                    enum: ['full', 'compact'],
+                    description: 'Response format: "full" (default) or "compact" (LLM-optimized)',
+                    default: 'full',
                 },
             },
             required: ['siteUrl'],
@@ -107,6 +127,12 @@ Includes:
                     type: 'string',
                     description: 'End date of the week (YYYY-MM-DD), defaults to yesterday',
                 },
+                format: {
+                    type: 'string',
+                    enum: ['full', 'compact'],
+                    description: 'Response format: "full" (default) or "compact" (LLM-optimized)',
+                    default: 'full',
+                },
             },
             required: ['siteUrl'],
         },
@@ -119,6 +145,9 @@ export async function handleOpportunityTool(
 ): Promise<ToolResult> {
     const client = await GSCClient.create();
     const siteUrl = args.siteUrl as string;
+    const format = (args.format as 'full' | 'compact') || 'full';
+    const formatOptions: FormatOptions = { format, siteUrl };
+    const compact = format === 'compact';
 
     // Default date range: last 28 days
     const today = new Date();
@@ -135,7 +164,7 @@ export async function handleOpportunityTool(
             maxCtr = 0.03,
             minPosition = 4,
             maxPosition = 20,
-            limit = 50,
+            limit = DEFAULT_ROW_LIMIT,
         } = args as {
             startDate?: string;
             endDate?: string;
@@ -156,7 +185,7 @@ export async function handleOpportunityTool(
         });
 
         // Filter for opportunities
-        const opportunities: LowCtrOpportunity[] = (response.rows || [])
+        const opportunities = (response.rows || [])
             .filter(
                 (row) =>
                     row.impressions >= minImpressions &&
@@ -164,20 +193,33 @@ export async function handleOpportunityTool(
                     row.position >= minPosition &&
                     row.position <= maxPosition
             )
-            .map((row) => ({
-                query: row.keys?.[0] || '',
-                page: row.keys?.[1],
-                clicks: row.clicks,
-                impressions: row.impressions,
-                ctr: row.ctr,
-                position: row.position,
-                // Estimate potential clicks if CTR improved to 5%
-                potentialClicks: Math.round(row.impressions * 0.05 - row.clicks),
-            }))
-            .sort((a, b) => b.potentialClicks - a.potentialClicks)
+            .map((row) => {
+                const potentialClicks = Math.round(row.impressions * 0.05 - row.clicks);
+                if (compact) {
+                    return {
+                        q: row.keys?.[0] || '',
+                        page: stripUrlPrefix(row.keys?.[1] || '', siteUrl),
+                        clicks: row.clicks,
+                        imp: row.impressions,
+                        ctr: formatCtr(row.ctr, true),
+                        pos: formatPosition(row.position),
+                        potential: potentialClicks,
+                    };
+                }
+                return {
+                    query: row.keys?.[0] || '',
+                    page: stripUrlPrefix(row.keys?.[1] || '', siteUrl),
+                    clicks: row.clicks,
+                    impressions: row.impressions,
+                    ctr: formatCtr(row.ctr, false),
+                    position: formatPosition(row.position),
+                    potentialClicks,
+                };
+            })
+            .sort((a, b) => (b.potential ?? b.potentialClicks) - (a.potential ?? a.potentialClicks))
             .slice(0, limit);
 
-        const totalPotential = opportunities.reduce((sum, o) => sum + o.potentialClicks, 0);
+        const totalPotential = opportunities.reduce((sum, o) => sum + (o.potential ?? o.potentialClicks), 0);
 
         return {
             content: [
@@ -185,16 +227,18 @@ export async function handleOpportunityTool(
                     type: 'text',
                     text: JSON.stringify(
                         {
-                            summary: {
-                                opportunitiesFound: opportunities.length,
-                                totalPotentialClicks: totalPotential,
-                                criteria: {
-                                    minImpressions,
-                                    maxCtr: `${(maxCtr * 100).toFixed(1)}%`,
-                                    positionRange: `${minPosition}-${maxPosition}`,
+                            summary: compact
+                                ? `Found ${opportunities.length} quick wins with ${totalPotential} potential clicks`
+                                : {
+                                    opportunitiesFound: opportunities.length,
+                                    totalPotentialClicks: totalPotential,
+                                    criteria: {
+                                        minImpressions,
+                                        maxCtr: `${(maxCtr * 100).toFixed(1)}%`,
+                                        positionRange: `${minPosition}-${maxPosition}`,
+                                    },
+                                    dateRange: { startDate, endDate },
                                 },
-                                dateRange: { startDate, endDate },
-                            },
                             opportunities,
                         },
                         null,
@@ -210,7 +254,7 @@ export async function handleOpportunityTool(
             startDate = defaultStartDate,
             endDate = defaultEndDate,
             minImpressions = 50,
-            limit = 30,
+            limit = DEFAULT_ROW_LIMIT,
         } = args as {
             startDate?: string;
             endDate?: string;
@@ -253,7 +297,18 @@ export async function handleOpportunityTool(
         }
 
         // Find cannibalization issues (2+ pages for same query)
-        const issues: CannibalizationIssue[] = [];
+        const issues: Array<{
+            query: string;
+            pages: Array<{
+                page: string;
+                clicks: number;
+                impressions: number;
+                ctr: number | string;
+                position: number;
+            }>;
+            totalImpressions: number;
+            recommendation: string;
+        }> = [];
 
         for (const [query, pages] of queryMap) {
             if (pages.length < 2) continue;
@@ -266,17 +321,36 @@ export async function handleOpportunityTool(
 
             // Generate recommendation
             const bestPage = pages[0];
+            const bestPagePath = stripUrlPrefix(bestPage.page, siteUrl);
             let recommendation: string;
 
             if (bestPage.position < 5) {
-                recommendation = `Consider consolidating content into ${bestPage.page} and redirecting other pages.`;
+                recommendation = `Consider consolidating content into ${bestPagePath} and redirecting other pages.`;
             } else {
                 recommendation = `Multiple pages competing. Consider: 1) Consolidate into one authoritative page, 2) Differentiate content focus, or 3) Use canonical tags.`;
             }
 
+            // Format pages with stripped URLs and truncated precision
+            const formattedPages = pages.map(p => ({
+                page: stripUrlPrefix(p.page, siteUrl),
+                clicks: p.clicks,
+                impressions: compact ? undefined : p.impressions,
+                imp: compact ? p.impressions : undefined,
+                ctr: formatCtr(p.ctr, compact),
+                position: formatPosition(p.position),
+                pos: undefined,
+            })).map(p => {
+                // Clean up undefined fields
+                const cleaned: Record<string, unknown> = {};
+                for (const [k, v] of Object.entries(p)) {
+                    if (v !== undefined) cleaned[k] = v;
+                }
+                return cleaned;
+            });
+
             issues.push({
                 query,
-                pages,
+                pages: formattedPages as typeof issues[0]['pages'],
                 totalImpressions,
                 recommendation,
             });
@@ -292,11 +366,13 @@ export async function handleOpportunityTool(
                     type: 'text',
                     text: JSON.stringify(
                         {
-                            summary: {
-                                issuesFound: topIssues.length,
-                                totalQueriesAnalyzed: queryMap.size,
-                                dateRange: { startDate, endDate },
-                            },
+                            summary: compact
+                                ? `Found ${topIssues.length} cannibalization issues from ${queryMap.size} queries`
+                                : {
+                                    issuesFound: topIssues.length,
+                                    totalQueriesAnalyzed: queryMap.size,
+                                    dateRange: { startDate, endDate },
+                                },
                             issues: topIssues,
                         },
                         null,
@@ -316,7 +392,7 @@ export async function handleOpportunityTool(
         const prevWeekEnd = new Date(weekStart.getTime() - 24 * 60 * 60 * 1000);
         const prevWeekStart = new Date(prevWeekEnd.getTime() - 6 * 24 * 60 * 60 * 1000);
 
-        const formatDate = (d: Date) => d.toISOString().split('T')[0];
+        const formatDateStr = (d: Date) => d.toISOString().split('T')[0];
 
         // Fetch data for both weeks in parallel
         const [
@@ -329,38 +405,38 @@ export async function handleOpportunityTool(
             // Current week totals
             client.searchAnalytics({
                 siteUrl,
-                startDate: formatDate(weekStart),
-                endDate: formatDate(end),
+                startDate: formatDateStr(weekStart),
+                endDate: formatDateStr(end),
                 rowLimit: 1,
             }),
             // Previous week totals
             client.searchAnalytics({
                 siteUrl,
-                startDate: formatDate(prevWeekStart),
-                endDate: formatDate(prevWeekEnd),
+                startDate: formatDateStr(prevWeekStart),
+                endDate: formatDateStr(prevWeekEnd),
                 rowLimit: 1,
             }),
             // Top queries
             client.searchAnalytics({
                 siteUrl,
-                startDate: formatDate(weekStart),
-                endDate: formatDate(end),
+                startDate: formatDateStr(weekStart),
+                endDate: formatDateStr(end),
                 dimensions: ['query'],
                 rowLimit: 10,
             }),
             // Top pages
             client.searchAnalytics({
                 siteUrl,
-                startDate: formatDate(weekStart),
-                endDate: formatDate(end),
+                startDate: formatDateStr(weekStart),
+                endDate: formatDateStr(end),
                 dimensions: ['page'],
                 rowLimit: 10,
             }),
             // Device breakdown
             client.searchAnalytics({
                 siteUrl,
-                startDate: formatDate(weekStart),
-                endDate: formatDate(end),
+                startDate: formatDateStr(weekStart),
+                endDate: formatDateStr(end),
                 dimensions: ['device'],
                 rowLimit: 5,
             }),
@@ -384,87 +460,65 @@ export async function handleOpportunityTool(
         const current = calcTotals(currentTotals.rows);
         const previous = calcTotals(prevTotals.rows);
 
-        const summary: WeeklySummary = {
+        // Format rows with truncated precision and stripped URLs
+        const formattedTopQueries = formatRows(topQueries.rows, formatOptions);
+        const formattedTopPages = formatRows(topPages.rows, formatOptions);
+
+        const currentCtr = current?.impressions ? current.clicks / current.impressions : 0;
+        const currentPos = current?.totalImpressions ? current.position / current.totalImpressions : 0;
+        const prevCtr = previous?.impressions ? previous.clicks / previous.impressions : 0;
+        const prevPos = previous?.totalImpressions ? previous.position / previous.totalImpressions : 0;
+
+        const summaryData = {
             period: {
-                startDate: formatDate(weekStart),
-                endDate: formatDate(end),
+                startDate: formatDateStr(weekStart),
+                endDate: formatDateStr(end),
             },
             totals: current
                 ? {
                     clicks: current.clicks,
                     impressions: current.impressions,
-                    ctr: current.impressions ? current.clicks / current.impressions : 0,
-                    position: current.totalImpressions
-                        ? current.position / current.totalImpressions
-                        : 0,
+                    ctr: formatCtr(currentCtr, true),
+                    position: formatPosition(currentPos),
                 }
-                : { clicks: 0, impressions: 0, ctr: 0, position: 0 },
+                : { clicks: 0, impressions: 0, ctr: '0.00%', position: 0 },
             previousPeriod: previous
                 ? {
                     clicks: previous.clicks,
                     impressions: previous.impressions,
-                    ctr: previous.impressions ? previous.clicks / previous.impressions : 0,
-                    position: previous.totalImpressions
-                        ? previous.position / previous.totalImpressions
-                        : 0,
+                    ctr: formatCtr(prevCtr, true),
+                    position: formatPosition(prevPos),
                 }
                 : undefined,
-            changes:
-                current && previous
-                    ? {
-                        clicks: current.clicks - previous.clicks,
-                        impressions: current.impressions - previous.impressions,
-                        ctr:
-                            (current.impressions ? current.clicks / current.impressions : 0) -
-                            (previous.impressions ? previous.clicks / previous.impressions : 0),
-                        position:
-                            (current.totalImpressions
-                                ? current.position / current.totalImpressions
-                                : 0) -
-                            (previous.totalImpressions
-                                ? previous.position / previous.totalImpressions
-                                : 0),
-                    }
-                    : undefined,
-            topQueries: topQueries.rows || [],
-            topPages: topPages.rows || [],
+            changes: current && previous
+                ? {
+                    clicks: `${current.clicks - previous.clicks >= 0 ? '+' : ''}${current.clicks - previous.clicks}`,
+                    impressions: `${current.impressions - previous.impressions >= 0 ? '+' : ''}${current.impressions - previous.impressions}`,
+                    ctr: `${currentCtr - prevCtr >= 0 ? '+' : ''}${((currentCtr - prevCtr) * 100).toFixed(2)}%`,
+                    position: `${currentPos - prevPos >= 0 ? '+' : ''}${formatPosition(currentPos - prevPos)}`,
+                }
+                : undefined,
+            topQueries: formattedTopQueries,
+            topPages: formattedTopPages,
             deviceBreakdown: (deviceData.rows || []).map((row) => ({
                 device: row.keys?.[0] || 'unknown',
                 clicks: row.clicks,
-                impressions: row.impressions,
-            })),
-        };
-
-        // Format for readability
-        const formatted = {
-            ...summary,
-            totals: {
-                ...summary.totals,
-                ctr: `${(summary.totals.ctr * 100).toFixed(2)}%`,
-                position: summary.totals.position.toFixed(1),
-            },
-            previousPeriod: summary.previousPeriod
-                ? {
-                    ...summary.previousPeriod,
-                    ctr: `${(summary.previousPeriod.ctr * 100).toFixed(2)}%`,
-                    position: summary.previousPeriod.position.toFixed(1),
+                impressions: compact ? undefined : row.impressions,
+                imp: compact ? row.impressions : undefined,
+            })).map(d => {
+                const cleaned: Record<string, unknown> = {};
+                for (const [k, v] of Object.entries(d)) {
+                    if (v !== undefined) cleaned[k] = v;
                 }
-                : undefined,
-            changes: summary.changes
-                ? {
-                    clicks: `${summary.changes.clicks >= 0 ? '+' : ''}${summary.changes.clicks}`,
-                    impressions: `${summary.changes.impressions >= 0 ? '+' : ''}${summary.changes.impressions}`,
-                    ctr: `${summary.changes.ctr >= 0 ? '+' : ''}${(summary.changes.ctr * 100).toFixed(2)}%`,
-                    position: `${summary.changes.position >= 0 ? '+' : ''}${summary.changes.position.toFixed(1)}`,
-                }
-                : undefined,
+                return cleaned;
+            }),
         };
 
         return {
             content: [
                 {
                     type: 'text',
-                    text: JSON.stringify(formatted, null, 2),
+                    text: JSON.stringify(summaryData, null, 2),
                 },
             ],
         };
