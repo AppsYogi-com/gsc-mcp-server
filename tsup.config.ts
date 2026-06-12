@@ -6,7 +6,7 @@ export default defineConfig({
         'cli/index': 'src/cli/index.ts',
     },
     format: ['esm'],
-    dts: false,
+    dts: true,
     clean: true,
     sourcemap: true,
     splitting: false,
