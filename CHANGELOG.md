@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-12
+
 ### Added
 - **`url_key` on every page row**: in `searchanalytics.query`, `report.comparePeriods`, `report.weeklySummary`, `opportunities.lowCtrHighPos`, `opportunities.cannibalization`, `export.json` and, as a last column, `export.csv`. It's the page's host and path (`https://www.Example.com/blog/post/?x=1` → `example.com/blog/post`), built with the same rules as the GA4 MCP server, so agents can join Search Console, Analytics and AdSense data per page.
 - Tests: vitest unit and tool tests, plus a smoke test of the built CLI over stdio (`npm test`, `npm run test:smoke`).
@@ -32,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Position is impression-weighted, and other dimensions are kept, so `["query", "date"]` rolls up per query.
 - Compact format no longer cuts a URL-prefix property's path out of page URLs (`https://example.com/blog/` turned `/blog/post` into `/post`), and no longer strips look-alike hosts such as `example.com.evil.net`.
 - The package ships `dist/index.d.ts`, which `exports.types` already pointed at.
+- The `bin` path is now `dist/cli/index.js`. npm 11.19 drops `./dist/cli/index.js` at publish time, which would have removed the `gsc-mcp` command. CI now fails if npm would correct `package.json` at publish.
 - `npm run lint` works: it uses eslint 9 with typescript-eslint, using a flat config.
 
 ## [0.2.3] - 2026-11-12

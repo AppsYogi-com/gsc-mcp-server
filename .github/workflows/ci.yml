@@ -47,3 +47,12 @@ jobs:
       - name: Smoke test (MCP over stdio, no credentials)
         if: matrix.node-version != 18
         run: npm run test:smoke
+
+      - name: Publish (dry run) without package.json corrections
+        # npm silently drops invalid fields at publish (e.g. a bin path it rejects); fail instead.
+        run: |
+          npm publish --dry-run --access public 2>&1 | tee publish-dry-run.log
+          if grep -qiE "errors corrected|was invalid and removed" publish-dry-run.log; then
+            echo "::error::npm would change package.json at publish time; run 'npm pkg fix' and commit."
+            exit 1
+          fi
