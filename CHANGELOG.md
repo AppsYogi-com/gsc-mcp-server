@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-12
+
 ### Fixed
 - The MCP server now reports the real package version to clients. It was hard-coded as `0.1.0`. `--version` and the server both read the version from `package.json` at build time, so they can't drift again.
 
