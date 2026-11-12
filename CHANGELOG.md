@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-12
+
 ### Security
 - Upgraded `zod` from 3 to 4.6.7, fixing a memory-exhaustion issue when validating oversized inputs ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)). Invalid tool input is still rejected, but validation error messages now use `zod` 4's wording.
 - Upgraded `googleapis` from 140 to 176 and `google-auth-library` from 9 to 10, now declared as a direct dependency since the code imports it. `googleapis-common` is pinned to 8.0.1, because 8.0.2+ pin an old `gaxios` with a vulnerable `rimraf` chain. Together these clear the `uuid` advisory ([GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq)). Fresh installs now audit at 0 vulnerabilities, and Node.js 18 is still supported.
