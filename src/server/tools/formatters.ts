@@ -1,19 +1,39 @@
 /**
  * Response formatting utilities for LLM-optimized output
- * 
+ *
  * Addresses:
  * - Issue #1: Truncate numeric precision
- * - Issue #2: Strip redundant URL prefixes
+ * - Issue #2: Strip redundant URL prefixes (compact format only)
  * - Issue #5: Compact response format
+ *
+ * Every row with a page gets a `url_key` (see ../../lib/urlKey.ts) for joining with ga-mcp,
+ * adsense-mcp and Ahrefs data.
  */
 
 import type { SearchAnalyticsRow } from '../../types.js';
+import { toUrlKey } from '../../lib/urlKey.js';
 
 export interface FormatOptions {
     /** Response format: 'full' (default) or 'compact' (LLM-optimized) */
     format?: 'full' | 'compact';
-    /** Site URL for stripping prefixes (issue #2) */
+    /** Site URL for stripping prefixes in compact format (issue #2) */
     siteUrl?: string;
+    /** Dimensions of the query, in row-key order; used to find the page key */
+    dimensions?: string[];
+}
+
+const isAbsoluteUrl = (value: string) => value.startsWith('http://') || value.startsWith('https://');
+
+/** The url_key for a Search Console page URL, or undefined if it can't be built. */
+export function pageUrlKey(page: string | undefined): string | undefined {
+    return toUrlKey(page) ?? undefined;
+}
+
+/** Index of the page value in a row's keys, or -1 if the row has no page. */
+export function pageKeyIndex(keys: string[] | undefined, dimensions?: string[]): number {
+    if (!keys) return -1;
+    if (dimensions) return dimensions.indexOf('page');
+    return keys.findIndex(isAbsoluteUrl);
 }
 
 /**
@@ -33,68 +53,72 @@ export function formatPosition(position: number): number {
     return Math.round(position * 10) / 10;
 }
 
+/** Strip `origin` from `url` only at a path boundary, so "https://a.com" never eats "https://a.com.evil/". */
+function stripOrigin(url: string, origin: string): string | null {
+    if (!url.startsWith(origin)) return null;
+    const rest = url.slice(origin.length);
+    if (rest === '') return '/';
+    if (rest.startsWith('/')) return rest;
+    if (rest.startsWith('?') || rest.startsWith('#')) return `/${rest}`;
+    return null;
+}
+
 /**
- * Strip the siteUrl prefix from a page URL
+ * Shorten a page URL to its path when it is on the property's own host (compact format).
+ * Only the scheme and host are removed; the path is always kept whole, so the result is a real
+ * path on the site. URLs on other hosts (e.g. subdomains of a domain property) are returned as is.
+ *
+ * This is lossy: http/https and www/non-www variants of a page shorten to the same path. Use the
+ * row's `url_key` to join, or `format: "full"` for exact URLs.
  */
 export function stripUrlPrefix(url: string, siteUrl?: string): string {
     if (!siteUrl || !url) return url;
 
-    // Normalize siteUrl - handle both domain property and URL prefix formats
-    let prefix = siteUrl;
-
-    // Handle sc-domain: format (e.g., "sc-domain:example.com")
-    if (prefix.startsWith('sc-domain:')) {
-        const domain = prefix.replace('sc-domain:', '');
-        // Try stripping https://domain, https://www.domain, http://domain, http://www.domain
-        const prefixes = [
+    let origins: string[];
+    if (siteUrl.startsWith('sc-domain:')) {
+        // Domain property (e.g., "sc-domain:example.com"): the bare and www hosts, either scheme
+        const domain = siteUrl.slice('sc-domain:'.length).toLowerCase();
+        origins = [
             `https://${domain}`,
             `https://www.${domain}`,
             `http://${domain}`,
             `http://www.${domain}`,
         ];
-        for (const p of prefixes) {
-            if (url.startsWith(p)) {
-                return url.slice(p.length) || '/';
-            }
+    } else {
+        // URL-prefix property (e.g., "https://example.com/blog/"): its origin only
+        try {
+            origins = [new URL(siteUrl).origin];
+        } catch {
+            return url;
         }
-        return url;
     }
 
-    // Handle URL prefix format (e.g., "https://example.com/")
-    // Remove trailing slash for matching
-    prefix = prefix.replace(/\/$/, '');
-
-    if (url.startsWith(prefix)) {
-        return url.slice(prefix.length) || '/';
+    for (const origin of origins) {
+        const stripped = stripOrigin(url, origin);
+        if (stripped !== null) return stripped;
     }
-
     return url;
 }
 
 /**
- * Format a single analytics row with truncated precision
+ * Format a single analytics row with truncated precision.
+ *
+ * Full format keeps page URLs exactly as Search Console returns them; compact format shortens
+ * them to paths. Both add `url_key` when the row has a page.
  */
 export function formatRow(
     row: SearchAnalyticsRow,
     options: FormatOptions = {}
 ): Record<string, unknown> {
-    const { format = 'full', siteUrl } = options;
+    const { format = 'full', siteUrl, dimensions } = options;
     const compact = format === 'compact';
 
-    // Process keys (strip URL prefixes for page dimension)
-    let keys = row.keys;
-    if (keys && siteUrl) {
-        keys = keys.map(key => {
-            // If it looks like a URL, strip the prefix
-            if (key.startsWith('http://') || key.startsWith('https://')) {
-                return stripUrlPrefix(key, siteUrl);
-            }
-            return key;
-        });
-    }
+    const pageIndex = pageKeyIndex(row.keys, dimensions);
+    const urlKey = pageIndex >= 0 ? pageUrlKey(row.keys?.[pageIndex]) : undefined;
 
     if (compact) {
-        // Compact format with short keys (issue #5)
+        // Compact format with short keys (issue #5) and shortened page URLs (issue #2)
+        const keys = row.keys?.map((key, i) => (i === pageIndex ? stripUrlPrefix(key, siteUrl) : key));
         const result: Record<string, unknown> = {};
 
         if (keys && keys.length > 0) {
@@ -106,6 +130,7 @@ export function formatRow(
                 result.keys = keys;
             }
         }
+        if (urlKey) result.url_key = urlKey;
 
         result.clicks = row.clicks;
         result.imp = row.impressions;
@@ -117,7 +142,8 @@ export function formatRow(
 
     // Full format with truncated precision (issue #1)
     return {
-        keys,
+        keys: row.keys,
+        ...(urlKey ? { url_key: urlKey } : {}),
         clicks: row.clicks,
         impressions: row.impressions,
         ctr: formatCtr(row.ctr, false),

@@ -1,12 +1,14 @@
 import { GSCClient } from '../../gsc/client.js';
 import type { ToolResult, SearchAnalyticsRow } from '../../types.js';
+import { pageUrlKey } from './formatters.js';
 
 export const exportTools = [
     {
         name: 'export.csv',
         description: `Export search analytics data as CSV format.
     
-Returns data in CSV format that can be saved to a file or imported into spreadsheets.`,
+Returns data in CSV format that can be saved to a file or imported into spreadsheets.
+With the page dimension, a url_key column (host + path) is added for joining with GA4 and AdSense data.`,
         inputSchema: {
             type: 'object' as const,
             properties: {
@@ -43,7 +45,8 @@ Returns data in CSV format that can be saved to a file or imported into spreadsh
         name: 'export.json',
         description: `Export search analytics data as formatted JSON.
     
-Returns data in a structured JSON format suitable for further processing.`,
+Returns data in a structured JSON format suitable for further processing.
+With the page dimension, each row gets a url_key (host + path) for joining with GA4 and AdSense data.`,
         inputSchema: {
             type: 'object' as const,
             properties: {
@@ -126,6 +129,9 @@ export async function handleExportTool(
             dimensions.forEach((dim, index) => {
                 obj[dim] = row.keys?.[index] || '';
             });
+            if (dimensions.includes('page')) {
+                obj.url_key = pageUrlKey(row.keys?.[dimensions.indexOf('page')]) ?? null;
+            }
 
             // Add metrics
             obj.clicks = row.clicks;
@@ -170,12 +176,15 @@ function convertToCSV(
     rows: SearchAnalyticsRow[],
     dimensions: string[]
 ): string {
+    // url_key goes last, so existing columns keep their positions
+    const pageIndex = dimensions.indexOf('page');
+    const headers = [...dimensions, 'clicks', 'impressions', 'ctr', 'position', ...(pageIndex >= 0 ? ['url_key'] : [])];
+
     if (rows.length === 0) {
-        return `${dimensions.join(',')},clicks,impressions,ctr,position\n`;
+        return `${headers.join(',')}\n`;
     }
 
     // Header
-    const headers = [...dimensions, 'clicks', 'impressions', 'ctr', 'position'];
     const lines: string[] = [headers.join(',')];
 
     // Data rows
@@ -194,6 +203,9 @@ function convertToCSV(
         values.push(String(row.impressions));
         values.push((row.ctr * 100).toFixed(2) + '%');
         values.push(row.position.toFixed(1));
+        if (pageIndex >= 0) {
+            values.push(escapeCSVValue(pageUrlKey(row.keys?.[pageIndex]) ?? ''));
+        }
 
         lines.push(values.join(','));
     }

@@ -2,11 +2,13 @@ import { GSCClient } from '../../gsc/client.js';
 import { SearchAnalyticsQuerySchema, type ToolResult, type SearchAnalyticsRow } from '../../types.js';
 import {
     formatRows,
+    formatCtr,
     formatPosition,
     generateSummary,
     DEFAULT_ROW_LIMIT,
     type FormatOptions,
 } from './formatters.js';
+import { resolveGranularity, rollupByGranularity, type Granularity } from './rollup.js';
 
 export const searchAnalyticsTools = [
     {
@@ -22,9 +24,12 @@ Common use cases:
 - Compare traffic across devices or countries
 - Filter by specific queries or URL patterns
 
+Page rows include url_key (host + path, e.g. "example.com/blog/post"), the join key shared with
+the GA4 and AdSense MCP servers. "full" format keeps exact page URLs; "compact" shortens them to paths.
+
 LLM optimization options:
 - format: "compact" for token-efficient responses with short keys
-- granularity: "weekly" or "monthly" for date dimension rollups`,
+- granularity: "weekly" (ISO weeks, Monday start) or "monthly" for date dimension rollups`,
         inputSchema: {
             type: 'object' as const,
             properties: {
@@ -114,7 +119,10 @@ LLM optimization options:
 Useful for:
 - Week-over-week comparisons
 - Month-over-month trends
-- Before/after analysis for SEO changes`,
+- Before/after analysis for SEO changes
+
+Totals are the property's totals for each period (all rows, impression-weighted position),
+not sums of the returned rows. Page rows include url_key.`,
         inputSchema: {
             type: 'object' as const,
             properties: {
@@ -162,6 +170,50 @@ Useful for:
     },
 ];
 
+type Dimension = 'query' | 'page' | 'country' | 'device' | 'searchAppearance' | 'date';
+
+/** Search Console's maximum rows per request. */
+const MAX_ROWS_PER_REQUEST = 25000;
+
+export interface PeriodTotals {
+    clicks: number;
+    impressions: number;
+    ctr: number;
+    /** Impression-weighted average position; null when the period has no impressions. */
+    position: number | null;
+}
+
+/**
+ * Property totals for a date range: a query with no dimensions, so Search Console aggregates
+ * every row itself (CTR and impression-weighted position included), not just the top N.
+ */
+export async function fetchPeriodTotals(
+    client: Pick<GSCClient, 'searchAnalytics'>,
+    siteUrl: string,
+    period: { startDate: string; endDate: string }
+): Promise<PeriodTotals> {
+    const response = await client.searchAnalytics({
+        siteUrl,
+        startDate: period.startDate,
+        endDate: period.endDate,
+        rowLimit: 1,
+    });
+    return totalsFromRow(response.rows?.[0]);
+}
+
+function totalsFromRow(row: SearchAnalyticsRow | undefined): PeriodTotals {
+    if (!row) return { clicks: 0, impressions: 0, ctr: 0, position: null };
+    return {
+        clicks: row.clicks,
+        impressions: row.impressions,
+        ctr: row.ctr,
+        position: row.impressions > 0 ? row.position : null,
+    };
+}
+
+const percentChange = (current: number, previous: number) =>
+    previous ? ((current - previous) / previous * 100).toFixed(1) + '%' : 'N/A';
+
 export async function handleSearchAnalyticsTool(
     name: string,
     args: Record<string, unknown>
@@ -170,7 +222,7 @@ export async function handleSearchAnalyticsTool(
 
     if (name === 'searchanalytics.query') {
         const format = (args.format as 'full' | 'compact') || 'full';
-        const granularity = (args.granularity as 'daily' | 'weekly' | 'monthly' | 'auto') || 'daily';
+        const granularity = (args.granularity as Granularity) || 'daily';
         const siteUrl = args.siteUrl as string;
         const dimensions = args.dimensions as string[] | undefined;
 
@@ -178,17 +230,25 @@ export async function handleSearchAnalyticsTool(
         const rowLimit = (args.rowLimit as number) || DEFAULT_ROW_LIMIT;
 
         const query = SearchAnalyticsQuerySchema.parse({ ...args, rowLimit });
-        let response = await client.searchAnalytics(query);
+        const rollup = dimensions?.includes('date')
+            ? resolveGranularity(granularity, query.startDate, query.endDate)
+            : 'daily';
 
-        // Apply date rollup if needed (issue #3)
-        if (dimensions?.includes('date') && granularity !== 'daily' && response.rows) {
+        let response;
+        if (rollup === 'daily') {
+            response = await client.searchAnalytics(query);
+        } else {
+            // Apply date rollup (issue #3): roll up all daily rows, then apply startRow/rowLimit
+            // to the buckets, so a weekly or monthly series covers the whole range.
+            const startRow = query.startRow ?? 0;
+            const daily = await client.searchAnalytics({ ...query, rowLimit: MAX_ROWS_PER_REQUEST, startRow: 0 });
             response = {
-                ...response,
-                rows: rollupByGranularity(response.rows, granularity, args.startDate as string, args.endDate as string),
+                ...daily,
+                rows: rollupByGranularity(daily.rows ?? [], rollup, dimensions).slice(startRow, startRow + rowLimit),
             };
         }
 
-        const formatOptions: FormatOptions = { format, siteUrl };
+        const formatOptions: FormatOptions = { format, siteUrl, dimensions };
 
         // Format response nicely
         const summary = {
@@ -205,7 +265,7 @@ export async function handleSearchAnalyticsTool(
             { clicks: 0, impressions: 0 }
         );
 
-        // Format rows with truncated precision (issue #1) and stripped URLs (issue #2)
+        // Format rows with truncated precision (issue #1) and url_key for page rows
         const formattedRows = formatRows(response.rows, formatOptions);
 
         // Build response based on format (issue #5)
@@ -235,68 +295,52 @@ export async function handleSearchAnalyticsTool(
             siteUrl: string;
             period1: { startDate: string; endDate: string };
             period2: { startDate: string; endDate: string };
-            dimensions?: string[];
+            dimensions?: Dimension[];
             rowLimit?: number;
             format?: 'full' | 'compact';
         };
+        const compact = format === 'compact';
+        const formatOptions: FormatOptions = { format, siteUrl, dimensions };
 
-        const formatOptions: FormatOptions = { format, siteUrl };
-
-        // Query both periods
-        const [result1, result2] = await Promise.all([
+        const queryRows = (period: { startDate: string; endDate: string }) =>
             client.searchAnalytics({
                 siteUrl,
-                startDate: period1.startDate,
-                endDate: period1.endDate,
-                dimensions: dimensions as ('query' | 'page' | 'country' | 'device' | 'searchAppearance' | 'date')[],
+                startDate: period.startDate,
+                endDate: period.endDate,
+                dimensions,
                 rowLimit,
-            }),
-            client.searchAnalytics({
-                siteUrl,
-                startDate: period2.startDate,
-                endDate: period2.endDate,
-                dimensions: dimensions as ('query' | 'page' | 'country' | 'device' | 'searchAppearance' | 'date')[],
-                rowLimit,
-            }),
+            });
+
+        // Totals come from a no-dimension query per period (all rows, impression-weighted
+        // position), never from summing the top-N rows below.
+        const hasDimensions = Boolean(dimensions?.length);
+        const [totals1, totals2, result1, result2] = await Promise.all([
+            fetchPeriodTotals(client, siteUrl, period1),
+            fetchPeriodTotals(client, siteUrl, period2),
+            hasDimensions ? queryRows(period1) : undefined,
+            hasDimensions ? queryRows(period2) : undefined,
         ]);
 
-        // Calculate totals for each period
-        const totals1 = result1.rows?.reduce<{ clicks: number; impressions: number; ctr: number; position: number; count: number }>(
-            (acc, row) => ({
-                clicks: acc.clicks + row.clicks,
-                impressions: acc.impressions + row.impressions,
-                ctr: 0,
-                position: acc.position + row.position,
-                count: acc.count + 1,
-            }),
-            { clicks: 0, impressions: 0, ctr: 0, position: 0, count: 0 }
-        );
-
-        const totals2 = result2.rows?.reduce<{ clicks: number; impressions: number; ctr: number; position: number; count: number }>(
-            (acc, row) => ({
-                clicks: acc.clicks + row.clicks,
-                impressions: acc.impressions + row.impressions,
-                ctr: 0,
-                position: acc.position + row.position,
-                count: acc.count + 1,
-            }),
-            { clicks: 0, impressions: 0, ctr: 0, position: 0, count: 0 }
-        );
-
-        // Calculate changes
-        const changes = totals1 && totals2 ? {
+        const changes = {
             clicks: totals1.clicks - totals2.clicks,
-            clicksPercent: totals2.clicks ? ((totals1.clicks - totals2.clicks) / totals2.clicks * 100).toFixed(1) + '%' : 'N/A',
+            clicksPercent: percentChange(totals1.clicks, totals2.clicks),
             impressions: totals1.impressions - totals2.impressions,
-            impressionsPercent: totals2.impressions ? ((totals1.impressions - totals2.impressions) / totals2.impressions * 100).toFixed(1) + '%' : 'N/A',
-            avgPosition: totals1.count && totals2.count
-                ? formatPosition(totals1.position / totals1.count - totals2.position / totals2.count)
+            impressionsPercent: percentChange(totals1.impressions, totals2.impressions),
+            avgPosition: totals1.position !== null && totals2.position !== null
+                ? formatPosition(totals1.position - totals2.position)
                 : 'N/A',
-        } : null;
+        };
 
-        // Format rows with truncated precision
-        const period1Data = formatRows(result1.rows, formatOptions);
-        const period2Data = formatRows(result2.rows, formatOptions);
+        const describeTotals = (totals: PeriodTotals) => ({
+            clicks: totals.clicks,
+            impressions: totals.impressions,
+            ctr: formatCtr(totals.ctr, compact),
+            avgPosition: totals.position === null ? null : formatPosition(totals.position),
+        });
+
+        // Format rows with truncated precision and url_key for page rows
+        const period1Data = formatRows(result1?.rows, formatOptions);
+        const period2Data = formatRows(result2?.rows, formatOptions);
 
         return {
             content: [
@@ -307,21 +351,13 @@ export async function handleSearchAnalyticsTool(
                             comparison: {
                                 period1: {
                                     dates: period1,
-                                    totals: totals1 ? {
-                                        clicks: totals1.clicks,
-                                        impressions: totals1.impressions,
-                                        avgPosition: totals1.count ? formatPosition(totals1.position / totals1.count) : 0,
-                                    } : null,
-                                    rowCount: result1.rows?.length || 0,
+                                    totals: describeTotals(totals1),
+                                    rowCount: period1Data.length,
                                 },
                                 period2: {
                                     dates: period2,
-                                    totals: totals2 ? {
-                                        clicks: totals2.clicks,
-                                        impressions: totals2.impressions,
-                                        avgPosition: totals2.count ? formatPosition(totals2.position / totals2.count) : 0,
-                                    } : null,
-                                    rowCount: result2.rows?.length || 0,
+                                    totals: describeTotals(totals2),
+                                    rowCount: period2Data.length,
                                 },
                                 changes,
                             },
@@ -340,80 +376,4 @@ export async function handleSearchAnalyticsTool(
         content: [{ type: 'text', text: `Unknown search analytics tool: ${name}` }],
         isError: true,
     };
-}
-
-/**
- * Roll up daily data into weekly or monthly buckets (issue #3)
- */
-function rollupByGranularity(
-    rows: SearchAnalyticsRow[],
-    granularity: 'weekly' | 'monthly' | 'auto',
-    startDate: string,
-    endDate: string
-): SearchAnalyticsRow[] {
-    // Determine actual granularity for 'auto'
-    let actualGranularity = granularity;
-    if (granularity === 'auto') {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-        if (days > 90) {
-            actualGranularity = 'monthly';
-        } else if (days > 21) {
-            actualGranularity = 'weekly';
-        } else {
-            return rows; // Keep daily for short ranges
-        }
-    }
-
-    // Group rows by bucket
-    const buckets = new Map<string, { clicks: number; impressions: number; positions: number[]; dates: string[] }>();
-
-    for (const row of rows) {
-        const dateStr = row.keys?.[0];
-        if (!dateStr) continue;
-
-        const date = new Date(dateStr);
-        let bucketKey: string;
-
-        if (actualGranularity === 'monthly') {
-            bucketKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        } else {
-            // Weekly: use the Monday of the week
-            const monday = new Date(date);
-            monday.setDate(date.getDate() - date.getDay() + 1);
-            bucketKey = monday.toISOString().split('T')[0];
-        }
-
-        if (!buckets.has(bucketKey)) {
-            buckets.set(bucketKey, { clicks: 0, impressions: 0, positions: [], dates: [] });
-        }
-
-        const bucket = buckets.get(bucketKey)!;
-        bucket.clicks += row.clicks;
-        bucket.impressions += row.impressions;
-        bucket.positions.push(row.position);
-        bucket.dates.push(dateStr);
-    }
-
-    // Convert buckets back to rows
-    const rolledUpRows: SearchAnalyticsRow[] = [];
-    for (const [bucketKey, bucket] of buckets) {
-        const avgPosition = bucket.positions.length > 0
-            ? bucket.positions.reduce((a, b) => a + b, 0) / bucket.positions.length
-            : 0;
-
-        rolledUpRows.push({
-            keys: [bucketKey],
-            clicks: bucket.clicks,
-            impressions: bucket.impressions,
-            ctr: bucket.impressions > 0 ? bucket.clicks / bucket.impressions : 0,
-            position: avgPosition,
-        });
-    }
-
-    // Sort by date
-    rolledUpRows.sort((a, b) => (a.keys?.[0] || '').localeCompare(b.keys?.[0] || ''));
-
-    return rolledUpRows;
 }

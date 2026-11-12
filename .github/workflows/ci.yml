@@ -28,12 +28,22 @@ jobs:
       - name: Run typecheck
         run: npm run typecheck
 
+      # eslint's and vitest's current releases need Node.js 20+. The package itself still supports
+      # Node.js 18, which the typecheck, build and CLI steps keep covering.
       - name: Run lint
+        if: matrix.node-version != 18
         run: npm run lint
-        continue-on-error: true
+
+      - name: Unit and tool tests
+        if: matrix.node-version != 18
+        run: npm test
 
       - name: Build
         run: npm run build
 
-      - name: Test CLI
-        run: node dist/cli/index.js --help
+      - name: Check build output
+        run: test -f dist/index.d.ts && node dist/cli/index.js --help
+
+      - name: Smoke test (MCP over stdio, no credentials)
+        if: matrix.node-version != 18
+        run: npm run test:smoke

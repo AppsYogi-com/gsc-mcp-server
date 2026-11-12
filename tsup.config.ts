@@ -13,7 +13,8 @@ export default defineConfig({
         'cli/index': 'src/cli/index.ts',
     },
     format: ['esm'],
-    dts: false,
+    // Type declarations for the library entry (package.json "exports" points types at dist/index.d.ts)
+    dts: { entry: { index: 'src/index.ts' } },
     clean: true,
     sourcemap: true,
     splitting: false,

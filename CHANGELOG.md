@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`url_key` on every page row**: in `searchanalytics.query`, `report.comparePeriods`, `report.weeklySummary`, `opportunities.lowCtrHighPos`, `opportunities.cannibalization`, `export.json` and, as a last column, `export.csv`. It's the page's host and path (`https://www.Example.com/blog/post/?x=1` → `example.com/blog/post`), built with the same rules as the GA4 MCP server, so agents can join Search Console, Analytics and AdSense data per page.
+- Tests: vitest unit and tool tests, plus a smoke test of the built CLI over stdio (`npm test`, `npm run test:smoke`).
+
+### Changed
+- **`format: "full"` now returns page URLs exactly as Search Console reports them.** They used to be shortened to paths, so `http://`/`https://` and `www`/bare-host variants of a page showed up as identical rows. `format: "compact"` still shortens pages to paths, with `url_key` added.
+- `report.comparePeriods` totals now include `ctr`, and `avgPosition` is `null` for a period with no impressions.
+- CI: lint is now enforced, and tests, the smoke test and a check for `dist/index.d.ts` run on Node.js 20 and 22. The package still supports Node.js 18.
+
+### Fixed
+- `gsc-mcp init` sign-in:
+  - It now uses PKCE (S256) and checks the OAuth `state`.
+  - It opens the browser before waiting. The browser used to open only after sign-in had already finished.
+  - It no longer hangs after sign-in: the 5-minute timer is cleared and the local callback server is closed, open connections included.
+  - The error shown on the callback page is HTML-escaped.
+  - The local callback server listens on a port the OS picks, on 127.0.0.1.
+- Reading the `gsc://sites` and `gsc://sites/{siteUrl}/sitemaps` resources always failed, because `gsc://sites` was parsed as a URL with `sites` as its host.
+- `report.comparePeriods` totals were sums of the top `rowLimit` rows, with an unweighted average position. They now come from a no-dimension query per period, which gives the property's real totals and impression-weighted position.
+- Weekly rollups (`granularity: "weekly"`/`"auto"`):
+  - Sundays were put in the following week. Rollups now use ISO weeks, Monday to Sunday.
+  - Dates were mixed between local time and UTC, so results depended on the machine's timezone.
+  - The rollup only saw the first `rowLimit` days (25 by default). It now rolls up the whole range, then applies `rowLimit` to the weekly or monthly rows.
+  - Position is impression-weighted, and other dimensions are kept, so `["query", "date"]` rolls up per query.
+- Compact format no longer cuts a URL-prefix property's path out of page URLs (`https://example.com/blog/` turned `/blog/post` into `/post`), and no longer strips look-alike hosts such as `example.com.evil.net`.
+- The package ships `dist/index.d.ts`, which `exports.types` already pointed at.
+- `npm run lint` works: it uses eslint 9 with typescript-eslint, using a flat config.
+
 ## [0.2.3] - 2026-11-12
 
 ### Security

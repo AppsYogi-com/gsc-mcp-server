@@ -43,7 +43,6 @@ export async function createServer(options: ServerOptions = {}): Promise<MCPServ
         return { tools };
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     server.setRequestHandler(CallToolRequestSchema, async (request): Promise<any> => {
         const { name, arguments: args } = request.params;
         return await handleToolCall(name, args || {}, options.defaultProperty);
@@ -55,7 +54,6 @@ export async function createServer(options: ServerOptions = {}): Promise<MCPServ
         return { resources };
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     server.setRequestHandler(ReadResourceRequestSchema, async (request): Promise<any> => {
         const { uri } = request.params;
         return await handleResourceRead(uri);

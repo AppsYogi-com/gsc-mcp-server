@@ -160,7 +160,7 @@ Add to your Cursor MCP config:
 | Tool | Description |
 |------|-------------|
 | `searchanalytics.query` | Query search performance data with dimensions and filters |
-| `report.comparePeriods` | Compare two time periods |
+| `report.comparePeriods` | Compare two time periods (totals are the property's totals for each period) |
 
 ### Sitemaps
 
@@ -193,6 +193,19 @@ Add to your Cursor MCP config:
 | `export.csv` | Export data as CSV |
 | `export.json` | Export data as JSON |
 
+## Joining with GA4 and AdSense (`url_key`)
+
+Every row with a page (in `searchanalytics.query`, `report.comparePeriods`, `report.weeklySummary`, the opportunity tools and the exports) has a `url_key`: the page's host and path, normalized the same way as the [GA4 MCP server](https://github.com/AppsYogi-com/ga-mcp-server) and the AdSense MCP server do it, so an agent can join Search Console, Analytics and AdSense data for the same page.
+
+```
+https://www.Example.com/blog/post/?utm_source=x  ->  example.com/blog/post
+```
+
+- The host is lowercased, without `www.` or a port.
+- The path keeps its case, without the query string, a trailing slash or `/index.html`.
+
+Page URLs themselves are returned exactly as Search Console reports them in `full` format, so `http://` and `https://`, `www` and bare-host variants of a page stay distinct rows. They share a `url_key`, so add them up when joining.
+
 ## LLM Optimization (v0.2.0+)
 
 All tools support parameters to reduce token consumption for LLM use cases:
@@ -215,7 +228,7 @@ Add `format: "compact"` to any tool for LLM-optimized output:
 - Short key names (`imp` instead of `impressions`, `pos` instead of `position`)
 - CTR as percentage string (`"5.41%"` instead of `0.054123...`)
 - Natural language summary field
-- URL prefixes stripped from page paths
+- Page URLs on the property's own host shortened to paths (`/blog/post`). Variants such as `http://` and `https://` then look alike, so use `url_key` to tell pages apart, or `full` format for exact URLs.
 
 **Example compact response:**
 ```json
@@ -243,9 +256,11 @@ For date dimension queries, use `granularity` to reduce row count:
 
 **Options:**
 - `daily` — Default, returns daily data
-- `weekly` — Aggregates by week (Monday-based)
-- `monthly` — Aggregates by month
+- `weekly` — Aggregates by ISO week (Monday to Sunday), keyed by the week's Monday
+- `monthly` — Aggregates by calendar month (`YYYY-MM`)
 - `auto` — Picks based on date range (>90 days = monthly, >21 days = weekly)
+
+Rollups cover the whole date range: `rowLimit` applies to the weekly or monthly rows, not the daily ones. Position is impression-weighted, as Search Console averages it.
 
 ### Default Row Limits
 
@@ -367,6 +382,12 @@ npm run build
 
 # Run in dev mode
 npm run dev
+
+# Typecheck, lint and test (Node.js 20+ for lint and tests)
+npm run typecheck
+npm run lint
+npm test
+npm run test:smoke   # the built CLI over stdio; run `npm run build` first
 
 # Test locally
 node dist/cli/index.js doctor

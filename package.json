@@ -4,13 +4,14 @@
     "description": "Google Search Console MCP Server - CLI-installable MCP server for GSC integration",
     "type": "module",
     "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
     "bin": {
         "gsc-mcp": "./dist/cli/index.js"
     },
     "exports": {
         ".": {
-            "import": "./dist/index.js",
-            "types": "./dist/index.d.ts"
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
         }
     },
     "files": [
@@ -21,7 +22,9 @@
         "dev": "tsup --watch",
         "start": "node dist/cli/index.js",
         "typecheck": "tsc --noEmit",
-        "lint": "eslint src/",
+        "lint": "eslint src test",
+        "test": "vitest run",
+        "test:smoke": "vitest run --config vitest.smoke.config.ts",
         "prepublishOnly": "npm run build"
     },
     "keywords": [
@@ -63,9 +66,18 @@
         "zod": "^4.6.7"
     },
     "devDependencies": {
+        "@eslint/js": "^9.39.5",
         "@types/better-sqlite3": "^7.6.0",
         "@types/node": "^22.0.0",
+        "eslint": "^9.39.5",
         "tsup": "^8.0.0",
-        "typescript": "^5.6.0"
+        "typescript": "^5.6.0",
+        "typescript-eslint": "^8.72.2",
+        "vitest": "^4.1.12"
+    },
+    "overrides": {
+        "@typescript-eslint/typescript-estree": {
+            "minimatch": "^11.0.1"
+        }
     }
 }

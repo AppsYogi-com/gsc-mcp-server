@@ -5,6 +5,7 @@ import {
     formatPosition,
     stripUrlPrefix,
     formatRows,
+    pageUrlKey,
     DEFAULT_ROW_LIMIT,
     type FormatOptions,
 } from './formatters.js';
@@ -195,10 +196,12 @@ export async function handleOpportunityTool(
             )
             .map((row) => {
                 const potentialClicks = Math.round(row.impressions * 0.05 - row.clicks);
+                const page = row.keys?.[1] || '';
                 if (compact) {
                     return {
                         q: row.keys?.[0] || '',
-                        page: stripUrlPrefix(row.keys?.[1] || '', siteUrl),
+                        page: stripUrlPrefix(page, siteUrl),
+                        url_key: pageUrlKey(page),
                         clicks: row.clicks,
                         imp: row.impressions,
                         ctr: formatCtr(row.ctr, true),
@@ -208,7 +211,8 @@ export async function handleOpportunityTool(
                 }
                 return {
                     query: row.keys?.[0] || '',
-                    page: stripUrlPrefix(row.keys?.[1] || '', siteUrl),
+                    page,
+                    url_key: pageUrlKey(page),
                     clicks: row.clicks,
                     impressions: row.impressions,
                     ctr: formatCtr(row.ctr, false),
@@ -301,6 +305,7 @@ export async function handleOpportunityTool(
             query: string;
             pages: Array<{
                 page: string;
+                url_key?: string;
                 clicks: number;
                 impressions: number;
                 ctr: number | string;
@@ -321,7 +326,7 @@ export async function handleOpportunityTool(
 
             // Generate recommendation
             const bestPage = pages[0];
-            const bestPagePath = stripUrlPrefix(bestPage.page, siteUrl);
+            const bestPagePath = compact ? stripUrlPrefix(bestPage.page, siteUrl) : bestPage.page;
             let recommendation: string;
 
             if (bestPage.position < 5) {
@@ -330,9 +335,10 @@ export async function handleOpportunityTool(
                 recommendation = `Multiple pages competing. Consider: 1) Consolidate into one authoritative page, 2) Differentiate content focus, or 3) Use canonical tags.`;
             }
 
-            // Format pages with stripped URLs and truncated precision
+            // Format pages (full URLs, or paths in compact format) with url_key and truncated precision
             const formattedPages = pages.map(p => ({
-                page: stripUrlPrefix(p.page, siteUrl),
+                page: compact ? stripUrlPrefix(p.page, siteUrl) : p.page,
+                url_key: pageUrlKey(p.page),
                 clicks: p.clicks,
                 impressions: compact ? undefined : p.impressions,
                 imp: compact ? p.impressions : undefined,
@@ -460,9 +466,9 @@ export async function handleOpportunityTool(
         const current = calcTotals(currentTotals.rows);
         const previous = calcTotals(prevTotals.rows);
 
-        // Format rows with truncated precision and stripped URLs
-        const formattedTopQueries = formatRows(topQueries.rows, formatOptions);
-        const formattedTopPages = formatRows(topPages.rows, formatOptions);
+        // Format rows with truncated precision and url_key for page rows
+        const formattedTopQueries = formatRows(topQueries.rows, { ...formatOptions, dimensions: ['query'] });
+        const formattedTopPages = formatRows(topPages.rows, { ...formatOptions, dimensions: ['page'] });
 
         const currentCtr = current?.impressions ? current.clicks / current.impressions : 0;
         const currentPos = current?.totalImpressions ? current.position / current.totalImpressions : 0;
