@@ -5,13 +5,14 @@ import chalk from 'chalk';
 import { initCommand } from './init.js';
 import { doctorCommand } from './doctor.js';
 import { runCommand } from './run.js';
+import { VERSION } from '../version.js';
 
 const program = new Command();
 
 program
     .name('gsc-mcp')
     .description('Google Search Console MCP Server - Connect GSC to Claude, Cursor, and other MCP clients')
-    .version('0.2.1');
+    .version(VERSION);
 
 program
     .command('init')

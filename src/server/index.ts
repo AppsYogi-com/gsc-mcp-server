@@ -9,6 +9,7 @@ import {
 import { createServer as createHttpServer } from 'http';
 import { getAllTools, handleToolCall } from './tools/index.js';
 import { getAllResources, handleResourceRead } from './resources/index.js';
+import { VERSION } from '../version.js';
 
 interface ServerOptions {
     defaultProperty?: string;
@@ -26,7 +27,7 @@ export async function createServer(options: ServerOptions = {}): Promise<MCPServ
     const server = new Server(
         {
             name: 'gsc-mcp',
-            version: '0.1.0',
+            version: VERSION,
         },
         {
             capabilities: {

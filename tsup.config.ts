@@ -1,6 +1,13 @@
+import { readFileSync } from 'fs';
 import { defineConfig } from 'tsup';
 
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
+
 export default defineConfig({
+    // Single source of truth for the version reported by the CLI and MCP server
+    define: {
+        __PKG_VERSION__: JSON.stringify(pkg.version),
+    },
     entry: {
         'index': 'src/index.ts',
         'cli/index': 'src/cli/index.ts',

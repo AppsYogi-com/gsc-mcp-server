@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The MCP server now reports the real package version to clients. It was hard-coded as `0.1.0`. `--version` and the server both read the version from `package.json` at build time, so they can't drift again.
+
+### Changed
+- Releases are published from GitHub Actions through npm trusted publishing (OIDC), staged for maintainer approval with 2FA and with provenance attestations. No long-lived npm token is stored anywhere.
+
 ## [0.2.1] - 2026-01-28
 
 ### Fixed
